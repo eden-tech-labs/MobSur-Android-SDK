@@ -6,7 +6,7 @@ import com.google.gson.annotations.SerializedName
 @Keep
 internal data class Occurred(
     @SerializedName("max")
-    val max: Any?,
+    val max: Int?,
     @SerializedName("min")
     val min: Int?
 )

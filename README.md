@@ -8,7 +8,7 @@
 
 ## Requirements
 - AndroidX
-- Kotlin 1.6+
+- Kotlin 1.4+
 
 ## Setup
 - Drop the `.aar` file in `/libs/` directory

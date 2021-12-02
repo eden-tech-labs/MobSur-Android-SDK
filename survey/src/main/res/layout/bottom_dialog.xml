@@ -24,7 +24,7 @@
                 android:contentDescription="Close button"
                 android:elevation="4dp"
                 android:padding="10dp"
-                android:src="@drawable/elt_survey_ic_close"
+                android:src="@drawable/ic_etl_survey_close"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
 

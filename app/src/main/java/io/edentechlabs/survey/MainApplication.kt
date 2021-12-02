@@ -7,6 +7,6 @@ class MainApplication: Application() {
 
     override fun onCreate() {
         super.onCreate()
-        MobSur.setup(context = this, appId = "52368575-3db1-4cfa-8ecd-15b01fca366b", userId = "12124601")
+        MobSur.setup(context = this, appId = "52368575-3db1-4cfa-8ecd-15b01fca366b", userId = "8439896434")
     }
 }
