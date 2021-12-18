@@ -13,11 +13,13 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageView
+import androidx.fragment.app.FragmentManager
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import io.edentechlabs.survey.sdk.R
 import io.edentechlabs.survey.sdk.data.network.dto.Survey
+import java.lang.Exception
 
 internal class SurveySheet : BottomSheetDialogFragment() {
 
@@ -56,6 +58,16 @@ internal class SurveySheet : BottomSheetDialogFragment() {
             }
             webView?.settings?.javaScriptEnabled = true
             webView?.loadUrl(it)
+        }
+    }
+
+    override fun show(manager: FragmentManager, tag: String?) {
+        try {
+            val transaction = manager.beginTransaction()
+            transaction.add(this, tag)
+            transaction.commitAllowingStateLoss()
+        } catch (e: Exception) {
+
         }
     }
 
