@@ -117,8 +117,9 @@ When someone signs in or out:
 MobSur.updateUserId("new-user-id")   // or null to go back to the SDK-generated ID
 ```
 
-When the ID actually changes, the previous person's survey and experiment lists, event counts, completed
-surveys and experiments already run are discarded, and the new person's are fetched. Attributes are kept.
+When the ID actually changes, the previous person's survey and experiment lists, event counts and completed
+surveys are discarded, and the new person's are fetched. Attributes are kept, and so is the record of
+experiments each person has run, so switching accounts and back never shows someone an experiment twice.
 
 ### 5. Describe the person (attributes)
 
