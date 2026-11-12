@@ -1,8 +1,9 @@
 # MobSur Android SDK
 
-Show MobSur surveys in your Android app when your users do something that matters.
+Show MobSur surveys and in-app message experiments in your Android app when your users do something that
+matters.
 
-**Version 1.4.0** · minSdk 21 · [Download `mobsur.aar`](mobsur.aar)
+**Version 1.5.0** · minSdk 21 · [Download `mobsur.aar`](mobsur.aar)
 
 ## Contents
 
@@ -10,6 +11,8 @@ Show MobSur surveys in your Android app when your users do something that matter
 - [Installation](#installation)
 - [Usage](#usage)
 - [When a survey is shown](#when-a-survey-is-shown)
+- [In-app message experiments](#in-app-message-experiments)
+- [Migrating from 1.4](#migrating-from-14)
 - [Migrating from 1.3](#migrating-from-13)
 - [Local testing](#local-testing)
 - [Data stored on the device](#data-stored-on-the-device)
@@ -52,7 +55,7 @@ Show MobSur surveys in your Android app when your users do something that matter
    }
    ```
 
-   Newer versions of these libraries work too. 1.4.0 no longer needs Retrofit or Gson.
+   Newer versions of these libraries work too. Since 1.4.0 the SDK no longer needs Retrofit or Gson.
 3. Sync Gradle.
 
 The SDK declares the `INTERNET` permission itself. Its R8/ProGuard rules are bundled in the `.aar`, so a
@@ -114,8 +117,39 @@ When someone signs in or out:
 MobSur.updateUserId("new-user-id")   // or null to go back to the SDK-generated ID
 ```
 
-When the ID actually changes, the previous person's survey list, event counts and completed surveys are
-discarded, and surveys are fetched for the new person.
+When the ID actually changes, the previous person's survey and experiment lists, event counts and completed
+surveys are discarded, and the new person's are fetched. Attributes are kept, and so is the record of
+experiments each person has run, so switching accounts and back never shows someone an experiment twice.
+
+### 5. Describe the person (attributes)
+
+```kotlin
+MobSur.setAttributes(mapOf("is_subscribed" to false, "days_since_install" to 7))
+```
+
+Attributes decide which [experiments](#in-app-message-experiments) a person is in. Values must be strings,
+numbers or booleans; anything else is ignored (and logged in debug mode). Attributes are merged into the
+ones set before and kept across launches; a `null` value removes a key. When anything changes, the SDK
+fetches again (event counts are kept), and no experiment runs until that fetch succeeds. You can call it
+before `setup`.
+
+### 6. Handle the call to action and veto overlays
+
+```kotlin
+MobSur.setOnAction { action ->
+    // e.g. "myapp://paywall", after the message sheet has closed
+    router.open(action)
+}
+MobSur.setCanShowOverlay { !paywallIsOnScreen }
+```
+
+- `setOnAction` receives an experiment message's call to action after the person taps it and the sheet has
+  closed. Without a handler, the action is opened with an `ACTION_VIEW` intent if it is a URL.
+- `setCanShowOverlay` is checked right before a survey or message would appear (after the rule's delay).
+  Return `false` while your own paywall, onboarding or another full-screen flow is on screen: nothing
+  appears, nothing is reported, and the session's slot stays free, so a later event can try again.
+
+Both are called on the main thread and can be set at any time.
 
 ### From Java
 
@@ -123,9 +157,15 @@ discarded, and surveys are fetched for the new person.
 MobSur.INSTANCE.setup(context, "YOUR-APP-ID", "user-id", false);
 MobSur.INSTANCE.setFragmentManager(getSupportFragmentManager());
 MobSur.INSTANCE.event("purchase_completed");
+Map<String, Object> attributes = new HashMap<>();
+attributes.put("is_subscribed", false);
+MobSur.INSTANCE.setAttributes(attributes);
+MobSur.INSTANCE.setOnAction(action -> router.open(action));
+MobSur.INSTANCE.setCanShowOverlay(() -> !paywallIsOnScreen);
 ```
 
-No SDK method throws. Calls made before `setup` are ignored.
+No SDK method throws. Calls made before `setup` are ignored, except `setAttributes`, `setOnAction` and
+`setCanShowOverlay`.
 
 ## When a survey is shown
 
@@ -144,21 +184,59 @@ and an optional **Through occurrence**.
   | 2    | 4       | 2, 3 and 4 |
 
 - **Delay.** Once the window matches, the survey opens after **Delay after event** (0–5 seconds). If the app
-  has gone to the background or the activity is gone by then, it is not shown, and a later event can try
-  again.
+  has gone to the background, the activity is gone or `setCanShowOverlay` returns `false` by then, it is not
+  shown, the event that selected it is not counted, and a later event can try again.
 - **Priority.** When several surveys use the same event, they are checked in the dashboard's priority
   order. The first survey whose window matches is shown; the surveys after it are not counted for that
   event.
-- **One survey per app session.** At most one survey is shown per app launch (process). While a survey is
-  waiting for its delay or on screen, events are ignored and not counted.
+- **One survey per app session.** At most one survey or experiment runs per app launch (process).
+  Experiments are checked first. While one is waiting for its delay or on screen, events are ignored and
+  not counted.
 - **Finishing.** When the person completes the survey, the sheet closes by itself (or after they tap
   **Finish** on the thank-you page) and that survey is not shown to them again.
 - **Closing early.** Closing the sheet before finishing does not complete the survey. It can be shown again
   in a later session if its occurrence window still matches. Use **Through occurrence** to limit how often
   that can happen.
 - **Start and end dates** from the dashboard are respected on the device.
-- **Updates.** Surveys are fetched at launch, when the user ID changes, and again during use when the last
-  fetch was more than 6 hours ago. Without a network connection, the last list is kept.
+- **Updates.** Surveys are fetched at launch, when the user ID or the attributes change, and again during
+  use when the last fetch was more than 6 hours ago. Without a network connection, the last list is kept.
+
+## In-app message experiments
+
+Your team can run an experiment from MobSur: a short in-app message (optional image, title, body, a call
+to action and a dismiss button) shown to part of an audience, while the rest (the **control** arm) see
+nothing. Comparing the two arms shows what the message changes.
+
+- The server picks who is in the experiment from the platform, the app version and your
+  [attributes](#5-describe-the-person-attributes), assigns each person an arm once, and sends it with the
+  surveys.
+- Experiments use the same rules as surveys (event, from/through occurrence, delay) and are checked
+  **before** surveys on each `event` call. They share the one-per-session rule.
+- **Treatment:** after the delay the message appears in a bottom sheet that follows your app's night mode,
+  with your activity theme's `colorPrimary` on the call to action. Tapping it calls your `setOnAction`
+  handler; the dismiss button, a swipe down, back or a tap outside closes it. The sheet survives rotation.
+  Override the `MobSurMessageSheetTheme` style to restyle it.
+- **Control:** nothing appears, but the exposure is still reported and the session's slot is used, so both
+  arms are measured under the same conditions.
+- Each experiment runs at most once per person on the device.
+
+The SDK reports `exposed`, `cta_tapped` and `dismissed` to MobSur. Events are queued on the device and sent
+in order; failed sends are retried with backoff (and at the next launch), so an offline exposure is still
+counted later. These calls do not count towards monthly tracked users.
+
+## Migrating from 1.4
+
+1. Replace `libs/mobsur.aar` with the new file. The dependencies are unchanged.
+2. Your existing calls keep compiling. New: `setAttributes`, `setOnAction`, `setCanShowOverlay`.
+3. If your app has paywalls, onboarding or other full-screen flows, call `setCanShowOverlay` so neither
+   surveys nor messages appear on top of them.
+
+What changes for your users:
+
+- Experiments are off until your team runs one in MobSur, so nothing changes for surveys-only apps except
+  the next point.
+- **A dropped survey no longer counts its event.** When a survey cannot appear after its delay, the event
+  that selected it is not counted, so a "from 1 through 1" rule gets another chance.
 
 ## Migrating from 1.3
 
@@ -204,23 +282,27 @@ Don't ship a release build with `baseUrl` set.
 
 ## Data stored on the device
 
-The SDK keeps its data in its own SharedPreferences file, `MobSur`: the current survey list, the event
-counts, the IDs of completed surveys, the generated user ID (only when you don't pass one), and a hash of
+The SDK keeps its data in its own SharedPreferences file, `MobSur`: the current survey and experiment
+lists, the event counts, the IDs of completed surveys and of experiments already run, your attributes, the
+experiment events waiting to be sent, the generated user ID (only when you don't pass one), and a hash of
 the app ID and user ID used to detect when the user changes. It sends the app ID, user ID, your app's
-`versionName`, the platform (`android`), the SDK version and the device languages (`Accept-Language`) to
-`api.mobsur.com`.
+`versionName`, the platform (`android`), the SDK version, the device languages (`Accept-Language`) and the
+attributes you set to `api.mobsur.com`, along with the experiment events above. Declare whatever your
+attributes contain (for example subscription status) in your Play Console data safety form.
 
 ## Troubleshooting
 
 Turn on `debug = true` and filter Logcat by the tag `MobSur` (`adb logcat -s MobSur`). The log shows each
-fetch, how many surveys arrived, and for each event whether a survey matched and why it was or was not
-shown.
+fetch, how many surveys and experiments arrived, and for each event whether something matched and why it
+was or was not shown.
 
-- **`no eligible survey`**: the event name differs from the dashboard, the survey has not started or has
-  ended, the occurrence window does not match yet, or this person already completed the survey.
+- **`nothing eligible`**: the event name differs from the dashboard, the survey or experiment has not
+  started or has ended, the occurrence window does not match yet, or this person already completed the
+  survey or saw the experiment.
 - **`no FragmentManager; call MobSur.setFragmentManager`**: call `setFragmentManager` in the activity's
   `onCreate`.
-- **`ignored: a survey is shown in this session`**: only one survey is shown per app launch.
+- **`ignored: a survey or experiment is shown in this session`**: only one runs per app launch.
+- **`canShowOverlay returned false`**: your `setCanShowOverlay` gate said no at that moment.
 - **`HTTP 403`**: the account has reached its monthly tracked users limit.
 - **`Null extracted folder for artifact`** (Gradle): check that the file is at `app/libs/mobsur.aar` and
   that the name in the dependency matches.
